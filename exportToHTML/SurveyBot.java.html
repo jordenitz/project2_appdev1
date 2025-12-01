@@ -1,0 +1,95 @@
+<html>
+<head>
+<title>SurveyBot.java</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cf8e6d;}
+.s1 { color: #bcbec4;}
+.s2 { color: #bcbec4;}
+.s3 { color: #7a7e85;}
+.s4 { color: #6aab73;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+SurveyBot.java</font>
+</center></td></tr></table>
+<pre><span class="s0">import </span><span class="s1">org</span><span class="s2">.</span><span class="s1">telegram</span><span class="s2">.</span><span class="s1">telegrambots</span><span class="s2">.</span><span class="s1">bots</span><span class="s2">.</span><span class="s1">TelegramLongPollingBot</span><span class="s2">;</span>
+
+<span class="s0">public class </span><span class="s1">SurveyBot </span><span class="s0">extends </span><span class="s1">TelegramLongPollingBot </span><span class="s2">{</span>
+
+    <span class="s0">private final </span><span class="s1">SurveyManager surveyManager</span><span class="s2">;</span>
+
+    <span class="s0">public </span><span class="s1">SurveyBot</span><span class="s2">(</span><span class="s1">SurveyManager surveyManager</span><span class="s2">) {</span>
+        <span class="s0">this</span><span class="s2">.</span><span class="s1">surveyManager </span><span class="s2">= </span><span class="s1">surveyManager</span><span class="s2">;</span>
+    <span class="s2">}</span>
+
+    <span class="s1">@Override</span>
+    <span class="s0">public void </span><span class="s1">onUpdateReceived</span><span class="s2">(</span><span class="s1">Update update</span><span class="s2">) {</span>
+
+        <span class="s3">// קיבלנו הודעה רגילה</span>
+        <span class="s0">if </span><span class="s2">(</span><span class="s1">update</span><span class="s2">.</span><span class="s1">hasMessage</span><span class="s2">()) {</span>
+            <span class="s1">handleMessage</span><span class="s2">(</span><span class="s1">update</span><span class="s2">.</span><span class="s1">getMessage</span><span class="s2">());</span>
+        <span class="s2">}</span>
+
+        <span class="s3">// קיבלנו עדכון על Poll (תשובה לסקר)</span>
+        <span class="s0">if </span><span class="s2">(</span><span class="s1">update</span><span class="s2">.</span><span class="s1">hasPollAnswer</span><span class="s2">()) {</span>
+            <span class="s1">handlePollAnswer</span><span class="s2">(</span><span class="s1">update</span><span class="s2">.</span><span class="s1">getPollAnswer</span><span class="s2">());</span>
+        <span class="s2">}</span>
+    <span class="s2">}</span>
+
+    <span class="s0">private void </span><span class="s1">handleMessage</span><span class="s2">(</span><span class="s1">Message message</span><span class="s2">) {</span>
+
+        <span class="s1">Long chatId </span><span class="s2">= </span><span class="s1">message</span><span class="s2">.</span><span class="s1">getChatId</span><span class="s2">();</span>
+        <span class="s1">Long userId </span><span class="s2">= </span><span class="s1">message</span><span class="s2">.</span><span class="s1">getFrom</span><span class="s2">().</span><span class="s1">getId</span><span class="s2">();</span>
+        <span class="s1">String name </span><span class="s2">= </span><span class="s1">message</span><span class="s2">.</span><span class="s1">getFrom</span><span class="s2">().</span><span class="s1">getFirstName</span><span class="s2">();</span>
+        <span class="s1">String text </span><span class="s2">= </span><span class="s1">message</span><span class="s2">.</span><span class="s1">getText</span><span class="s2">() != </span><span class="s0">null </span><span class="s2">? </span><span class="s1">message</span><span class="s2">.</span><span class="s1">getText</span><span class="s2">().</span><span class="s1">trim</span><span class="s2">() : </span><span class="s4">&quot;&quot;</span><span class="s2">;</span>
+
+        <span class="s0">if </span><span class="s2">(</span><span class="s1">text</span><span class="s2">.</span><span class="s1">equalsIgnoreCase</span><span class="s2">(</span><span class="s4">&quot;/start&quot;</span><span class="s2">) ||</span>
+                <span class="s1">text</span><span class="s2">.</span><span class="s1">equals</span><span class="s2">(</span><span class="s4">&quot;היי&quot;</span><span class="s2">) ||</span>
+                <span class="s1">text</span><span class="s2">.</span><span class="s1">equalsIgnoreCase</span><span class="s2">(</span><span class="s4">&quot;hi&quot;</span><span class="s2">)) {</span>
+
+            <span class="s0">boolean </span><span class="s1">isNew </span><span class="s2">= </span><span class="s1">surveyManager</span><span class="s2">.</span><span class="s1">addMember</span><span class="s2">(</span><span class="s1">userId</span><span class="s2">, </span><span class="s1">name</span><span class="s2">);</span>
+
+            <span class="s0">if </span><span class="s2">(</span><span class="s1">isNew</span><span class="s2">) {</span>
+                <span class="s1">sendText</span><span class="s2">(</span><span class="s1">chatId</span><span class="s2">, </span><span class="s4">&quot;ברוך הבא לקהילה!&quot;</span><span class="s2">);</span>
+                <span class="s1">surveyManager</span><span class="s2">.</span><span class="s1">broadcastNewMember</span><span class="s2">(</span><span class="s1">name</span><span class="s2">, </span><span class="s1">userId</span><span class="s2">, </span><span class="s0">this</span><span class="s2">);</span>
+            <span class="s2">} </span><span class="s0">else </span><span class="s2">{</span>
+                <span class="s1">sendText</span><span class="s2">(</span><span class="s1">chatId</span><span class="s2">, </span><span class="s4">&quot;אתה כבר בקהילה 👍&quot;</span><span class="s2">);</span>
+            <span class="s2">}</span>
+
+        <span class="s2">} </span><span class="s0">else </span><span class="s2">{</span>
+            <span class="s1">sendText</span><span class="s2">(</span><span class="s1">chatId</span><span class="s2">, </span><span class="s4">&quot;כדי להצטרף לקהילה שלח /start או היי/Hi&quot;</span><span class="s2">);</span>
+        <span class="s2">}</span>
+    <span class="s2">}</span>
+
+    <span class="s0">private void </span><span class="s1">handlePollAnswer</span><span class="s2">(</span><span class="s1">PollAnswer pollAnswer</span><span class="s2">) {</span>
+        <span class="s1">surveyManager</span><span class="s2">.</span><span class="s1">registerAnswer</span><span class="s2">(</span><span class="s1">pollAnswer</span><span class="s2">, </span><span class="s0">this</span><span class="s2">);</span>
+    <span class="s2">}</span>
+
+    <span class="s0">public void </span><span class="s1">sendText</span><span class="s2">(</span><span class="s1">Long chatId</span><span class="s2">, </span><span class="s1">String text</span><span class="s2">) {</span>
+        <span class="s1">SendMessage msg </span><span class="s2">= </span><span class="s0">new </span><span class="s1">SendMessage</span><span class="s2">();</span>
+        <span class="s1">msg</span><span class="s2">.</span><span class="s1">setChatId</span><span class="s2">(</span><span class="s1">chatId</span><span class="s2">);</span>
+        <span class="s1">msg</span><span class="s2">.</span><span class="s1">setText</span><span class="s2">(</span><span class="s1">text</span><span class="s2">);</span>
+        <span class="s0">try </span><span class="s2">{</span>
+            <span class="s1">execute</span><span class="s2">(</span><span class="s1">msg</span><span class="s2">);</span>
+        <span class="s2">} </span><span class="s0">catch </span><span class="s2">(</span><span class="s1">TelegramApiException e</span><span class="s2">) {</span>
+            <span class="s1">e</span><span class="s2">.</span><span class="s1">printStackTrace</span><span class="s2">();</span>
+        <span class="s2">}</span>
+    <span class="s2">}</span>
+
+    <span class="s1">@Override</span>
+    <span class="s0">public </span><span class="s1">String getBotUsername</span><span class="s2">() {</span>
+        <span class="s0">return </span><span class="s4">&quot;YOUR_BOT_NAME&quot;</span><span class="s2">;</span>
+    <span class="s2">}</span>
+
+    <span class="s1">@Override</span>
+    <span class="s0">public </span><span class="s1">String getBotToken</span><span class="s2">() {</span>
+        <span class="s0">return </span><span class="s4">&quot;YOUR_BOT_TOKEN_HERE&quot;</span><span class="s2">;</span>
+    <span class="s2">}</span>
+<span class="s2">}</span>
+</pre>
+</body>
+</html>
