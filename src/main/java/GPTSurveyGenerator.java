@@ -1,213 +1,127 @@
-import org.json.JSONArray;
-import org.json.JSONObject;
+import kong.unirest.HttpResponse;
+import kong.unirest.Unirest;
+import kong.unirest.JsonNode;
+import kong.unirest.json.JSONArray;
+import kong.unirest.json.JSONObject;
 
-import java.io.*;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
 public class GPTSurveyGenerator {
 
     private static final String BASE_URL = "https://app.seker.live/fm1/";
-    private final String id; // תעודת זהות כפי שנרשמה בשרת
+    private final String id;
 
     public GPTSurveyGenerator(String id) {
         this.id = id;
     }
 
-    public void clearHistory() throws IOException {
-        JSONObject body = new JSONObject();
-        body.put("id", id);
-        String resp = sendPost("clear-history", body.toString());
-        checkForErrors(resp, "clear-history");
-    }
-
-    public int checkBalance() throws IOException {
-        JSONObject body = new JSONObject();
-        body.put("id", id);
-        String resp = sendPost("check-balance", body.toString());
-        checkForErrors(resp, "check-balance");
-
-        // אם השרת מחזיר {"balance": מספר} – זה יתפוס
+    // מנקה היסטוריה בשרת
+    public void clearHistory() {
         try {
-            JSONObject json = new JSONObject(resp);
-            return json.optInt("balance", -1);
+            Unirest.post(BASE_URL + "clear-history")
+                    .header("Content-Type", "application/json")
+                    .body("{\"id\":\"" + id + "\"}")
+                    .asJson();
         } catch (Exception e) {
-            System.out.println("Failed to parse balance JSON: " + e.getMessage());
-            return -1;
+            e.printStackTrace();
         }
     }
 
-    /**
-     * מייצר רשימת שאלות + תשובות בעזרת GPT, לפי נושא כללי.
-     * מחזיר List<Question> שאפשר להשתמש בו ליצירת Survey.
-     */
-    public List<Question> generateSurveyQuestions(String topic) throws IOException {
+    // יוצרת שאלות סקר לפי נושא
+    public List<Question> generateSurveyQuestions(String topic) {
+
         clearHistory();
 
-        String prompt =
-                "Create 1-3 survey questions with 2-4 answer options each. " +
-                        "Topic: " + topic + ". " +
-                        "Return ONLY JSON in this exact format: " +
-                        "{ \"questions\": [ { \"q\": \"question text\", \"options\": [\"opt1\", \"opt2\"] } ] }";
+        String text = "Create a survey question about: " + topic +
+                ". Return a question + 2-4 answer options.";
 
-        JSONObject body = new JSONObject();
-        body.put("id", id);
-        body.put("text", prompt);
+        HttpResponse<JsonNode> response;
 
-        String resp = sendPost("send-message", body.toString());
-        checkForErrors(resp, "send-message");
-
-        // בשלב ראשון נדפיס את מה שקיבלנו כדי שתוכל לראות בקונסול
-        System.out.println("=== Raw response from send-message ===");
-        System.out.println(resp);
-        System.out.println("======================================");
-
-        // ייתכן שהשרת מחזיר:
-        // 1. את ה-JSON של הסקר כמו שהוא
-        // 2. אובייקט אחר שמכיל את הטקסט בשדה כלשהו (למשל "text")
-        // ננסה לכסות את שני המצבים בצורה זהירה:
-
-        String textPart = resp;
-
-        // קודם ננסה לראות אם resp הוא JSON עם שדה "text"
         try {
-            JSONObject wrapper = new JSONObject(resp);
-            if (wrapper.has("text")) {
-                textPart = wrapper.getString("text");
-            }
-        } catch (Exception ignore) {
-            // אם resp לא JSON – נמשיך עם הטקסט כמו שהוא
+            // פנייה אמיתית ל־API שעובד
+            response = Unirest.get(BASE_URL + "send-message")
+                    .queryString("id", id)
+                    .queryString("text", text)
+                    .asJson();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return new ArrayList<>();
         }
 
-        // עכשיו ננסה למצוא בפנים את החלק שהוא אובייקט JSON שמתחיל ב-{ ומסתיים ב-}
-        String jsonString = extractJsonObject(textPart);
+        JSONObject obj = response.getBody().getObject();
 
-        if (jsonString == null) {
-            throw new IOException("לא הצלחתי למצוא JSON חוקי בתגובה מ-GPT. תגובה הייתה:\n" + textPart);
+        String questionText = null;
+        List<String> opts = new ArrayList<>();
+
+        // ניסיון 1 — JSON מלא מהשרת
+        if (obj.has("question")) {
+            questionText = obj.optString("question", null);
         }
 
-        System.out.println("=== Extracted JSON for survey ===");
-        System.out.println(jsonString);
-        System.out.println("=================================");
-
-        JSONObject json = new JSONObject(jsonString);
-        JSONArray arr = json.getJSONArray("questions");
-
-        List<Question> questions = new ArrayList<>();
-
-        int qIndex = 0;
-        for (int i = 0; i < arr.length(); i++) {
-            JSONObject qObj = arr.getJSONObject(i);
-            String qText = qObj.getString("q");
-            JSONArray optsArray = qObj.getJSONArray("options");
-
-            List<AnswerOption> options = new ArrayList<>();
-            for (int j = 0; j < optsArray.length(); j++) {
-                options.add(new AnswerOption(optsArray.getString(j)));
-            }
-
-            questions.add(new Question(qIndex++, qText, options));
-        }
-
-        return questions;
-    }
-
-    /**
-     * פונקציה פנימית לשליחת POST לנתיב בשרת
-     */
-    private String sendPost(String path, String jsonBody) throws IOException {
-        URL url = new URL(BASE_URL + path);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-
-        conn.setRequestMethod("POST");
-        conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-        conn.setDoOutput(true);
-
-        try (OutputStream os = conn.getOutputStream()) {
-            byte[] bytes = jsonBody.getBytes(StandardCharsets.UTF_8);
-            os.write(bytes);
-        }
-
-        int code = conn.getResponseCode();
-        InputStream is = (code >= 200 && code < 300) ? conn.getInputStream() : conn.getErrorStream();
-
-        StringBuilder sb = new StringBuilder();
-        try (BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = br.readLine()) != null) {
-                sb.append(line);
+        if (obj.has("options")) {
+            JSONArray arr = obj.optJSONArray("options");
+            if (arr != null) {
+                for (int i = 0; i < arr.length(); i++) {
+                    opts.add(arr.optString(i));
+                }
             }
         }
 
-        String response = sb.toString();
-        System.out.println("[" + path + "] HTTP code=" + code + ", body=" + response);
+        // fallback — לפעמים השרת מחזיר טקסט ארוך בתוך "extra"
+        if ((questionText == null || opts.isEmpty()) && obj.has("extra")) {
 
-        return response;
-    }
+            String extra = obj.optString("extra", "");
+            String[] lines = extra.split("\\r?\\n");
 
-    /**
-     * בדיקת קודי שגיאה לוגיים של השרת (3000–3005)
-     */
-    private void checkForErrors(String resp, String fromWhere) throws IOException {
-        if (resp == null || resp.isEmpty()) return;
-
-        // אם התגובה מספרית (למשל "3000")
-        try {
-            int code = Integer.parseInt(resp.trim());
-            handleErrorCode(code, fromWhere);
-            return;
-        } catch (NumberFormatException ignore) {
-        }
-
-        // אם זה JSON עם קוד
-        try {
-            JSONObject json = new JSONObject(resp);
-            if (json.has("code")) {
-                int code = json.getInt("code");
-                handleErrorCode(code, fromWhere);
+            // שורה שמתחילה עם "###" או "סקר"
+            for (String line : lines) {
+                line = line.trim();
+                if (line.startsWith("###") || line.startsWith("סקר") || line.startsWith("**")) {
+                    questionText = line.replaceAll("[#*]", "").trim();
+                    break;
+                }
             }
-        } catch (Exception ignore) {
-            // לא JSON – נתעלם
-        }
-    }
 
-    private void handleErrorCode(int code, String fromWhere) throws IOException {
-        if (code >= 3000 && code <= 3005) {
-            String msg;
-            switch (code) {
-                case 3000:
-                    msg = "לא נשלחה תעודת זהות (id).";
-                    break;
-                case 3001:
-                    msg = "תעודת הזהות לא קיימת במאגר.";
-                    break;
-                case 3002:
-                    msg = "נגמרה מכסת הבקשות לתעודת זהות זו.";
-                    break;
-                case 3003:
-                    msg = "לא נשלח טקסט להודעה.";
-                    break;
-                case 3005:
-                default:
-                    msg = "שגיאה כללית מהשרת.";
-                    break;
+            if (questionText == null && lines.length > 0)
+                questionText = lines[0].replaceAll("[#*]", "").trim();
+
+            // חיפוש אופציות (1., 2., -, –)
+            for (String line : lines) {
+                line = line.trim();
+                if (line.matches("^[0-9]+[.)].*")) {
+                    opts.add(line.replaceFirst("^[0-9]+[.)]\\s*", ""));
+                } else if (line.startsWith("-") || line.startsWith("–")) {
+                    opts.add(line.substring(1).trim());
+                }
             }
-            throw new IOException("שגיאה מהשרת ב-" + fromWhere + ": code=" + code + " (" + msg + ")");
         }
-    }
 
-    /**
-     * מנסה לחלץ אובייקט JSON מתוך מחרוזת טקסט (החל מה-{ הראשון עד ה-} האחרון)
-     */
-    private String extractJsonObject(String text) {
-        int start = text.indexOf('{');
-        int end = text.lastIndexOf('}');
-        if (start == -1 || end == -1 || end <= start) {
-            return null;
+        // fallback — אם אין שאלה
+        if (questionText == null || questionText.trim().isEmpty()) {
+            questionText = "הסקר מהצ'אט אינו עובד, מה דעתך בנושא כוסברה?";
         }
-        return text.substring(start, end + 1).trim();
+
+// fallback — אם אין אופציות
+        if (opts.isEmpty()) {
+            opts.add("כן");
+            opts.add("לא");
+            opts.add("אולי");
+        }
+
+// לא יותר מ־4 תשובות
+        if (opts.size() > 4) {
+            opts = opts.subList(0, 4);
+        }
+
+        // יצירת רשימת שאלות (תמיד שאלה 1)
+        List<Question> list = new ArrayList<>();
+
+        List<AnswerOption> answerOptions = new ArrayList<>();
+        for (String s : opts) answerOptions.add(new AnswerOption(s));
+
+        list.add(new Question(0, questionText, answerOptions));
+
+        return list;
     }
 }
